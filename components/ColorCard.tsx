@@ -24,50 +24,13 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
   const [cardSize, setCardSize] = useState<CardSize>('normal')
   const [isDownloading, setIsDownloading] = useState(false)
   const [isImageReady, setIsImageReady] = useState(false)
-  const [isImageFullyRendered, setIsImageFullyRendered] = useState(false)
   const imageRef = useRef<HTMLImageElement>(null)
 
   useEffect(() => {
     if (imageUrl) {
       setIsImageReady(false)
-      setIsImageFullyRendered(false)
-      
-      const checkImageRendered = () => {
-        if (imageRef.current) {
-          const img = imageRef.current
-          const isComplete = img.complete && img.naturalWidth > 0 && img.naturalHeight > 0
-          const hasOffsetSize = img.offsetWidth > 0 && img.offsetHeight > 0
-          const rect = img.getBoundingClientRect()
-          const hasBoundingRect = rect.width > 0 && rect.height > 0
-          const computedStyle = window.getComputedStyle(img)
-          const isVisible = computedStyle.display !== 'none' && 
-                           computedStyle.visibility !== 'hidden' && 
-                           computedStyle.opacity !== '0'
-          
-          return isComplete && hasOffsetSize && hasBoundingRect && isVisible
-        }
-        return false
-      }
-      
-      if (imageRef.current) {
-        const img = imageRef.current
-        if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
-          setIsImageReady(true)
-          
-          let attempts = 0
-          const maxAttempts = 50
-          const checkInterval = setInterval(() => {
-            attempts++
-            if (checkImageRendered() || attempts >= maxAttempts) {
-              clearInterval(checkInterval)
-              setTimeout(() => setIsImageFullyRendered(true), 1000)
-            }
-          }, 100)
-        }
-      }
     } else {
       setIsImageReady(false)
-      setIsImageFullyRendered(false)
     }
   }, [imageUrl])
 
@@ -271,11 +234,162 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
         }
       }
       
+      const downloadImage = cardRef.current.querySelector('.card-image') as HTMLImageElement
+      
+      if (downloadImage && downloadImage.src) {
+        const img = new Image()
+        
+        await new Promise<void>((resolve) => {
+          img.onload = () => {
+            setTimeout(() => resolve(), 1000)
+          }
+          img.onerror = () => resolve()
+          img.src = downloadImage.src
+          setTimeout(() => resolve(), 10000)
+        })
+        
+        if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+          const canvas = document.createElement('canvas')
+          canvas.width = sizeConfig.width * 2
+          canvas.height = sizeConfig.height * 2
+          const ctx = canvas.getContext('2d')
+          
+          if (ctx) {
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            
+            const imageHeight = Math.floor(sizeConfig.height * (2/3) * 2)
+            const imageWidth = sizeConfig.width * 2
+            
+            const imgAspect = img.naturalWidth / img.naturalHeight
+            const targetAspect = imageWidth / imageHeight
+            
+            let drawWidth = imageWidth
+            let drawHeight = imageHeight
+            let drawX = 0
+            let drawY = 0
+            
+            if (imgAspect > targetAspect) {
+              drawHeight = imageHeight
+              drawWidth = imageHeight * imgAspect
+              drawX = (imageWidth - drawWidth) / 2
+            } else {
+              drawWidth = imageWidth
+              drawHeight = imageWidth / imgAspect
+              drawY = (imageHeight - drawHeight) / 2
+            }
+            
+            ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
+            
+            const textSectionY = imageHeight
+            const textSectionHeight = (sizeConfig.height * 2) - imageHeight
+            
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(0, textSectionY, canvas.width, textSectionHeight)
+            
+            const logo = textSection?.querySelector('img') as HTMLImageElement
+            const userNameText = textSection?.querySelector('.user-name') as HTMLElement
+            
+            if (logo && logo.src) {
+              const logoImg = new Image()
+              await new Promise<void>((resolve) => {
+                logoImg.onload = () => {
+                  let logoHeight = 24 * 2
+                  let paddingTop = 24 * 2
+                  if (size === 'instagram-post') {
+                    logoHeight = 72 * 2
+                    paddingTop = 72 * 2
+                  } else if (size === 'instagram-story') {
+                    logoHeight = 96 * 2
+                    paddingTop = 96 * 2
+                  }
+                  const logoY = textSectionY + paddingTop
+                  const logoWidth = logoHeight * (logoImg.width / logoImg.height)
+                  ctx.drawImage(logoImg, 32 * 2, logoY, logoWidth, logoHeight)
+                  
+                  if (userNameText && userNameText.textContent) {
+                    ctx.fillStyle = '#000000'
+                    let fontSize = 18 * 2
+                    let marginTop = 24 * 2
+                    if (size === 'instagram-post') {
+                      fontSize = 54 * 2
+                      marginTop = 72 * 2
+                    } else if (size === 'instagram-story') {
+                      fontSize = 72 * 2
+                      marginTop = 96 * 2
+                    }
+                    ctx.font = `normal ${fontSize}px sans-serif`
+                    const nameY = logoY + logoHeight + marginTop
+                    ctx.fillText(userNameText.textContent, 32 * 2, nameY)
+                  }
+                  
+                  resolve()
+                }
+                logoImg.onerror = () => resolve()
+                logoImg.src = logo.src
+                setTimeout(() => resolve(), 5000)
+              })
+            }
+            
+            const dataUrl = canvas.toDataURL('image/png', 1.0)
+            
+            const link = document.createElement('a')
+            const sizeName = size === 'normal' ? '' : `-${size.replace('instagram-', '')}`
+            link.download = `pantone-card-${userName || 'color'}${sizeName}.png`
+            link.href = dataUrl
+            link.click()
+            
+            if (onDownloadSuccess) {
+              onDownloadSuccess()
+            }
+            
+            cardRef.current.style.width = originalCardStyle.width
+            cardRef.current.style.height = originalCardStyle.height
+            cardRef.current.style.maxWidth = originalCardStyle.maxWidth
+            cardRef.current.style.aspectRatio = originalCardStyle.aspectRatio
+            cardRef.current.style.padding = originalCardStyle.padding
+            cardRef.current.style.borderRadius = originalCardStyle.borderRadius
+            cardRef.current.style.margin = originalCardStyle.margin
+            cardRef.current.style.boxSizing = ''
+            
+            if (imageSection && originalImageStyle) {
+              imageSection.style.height = originalImageStyle.height
+              imageSection.style.minHeight = originalImageStyle.minHeight
+              imageSection.style.flexShrink = ''
+            }
+            
+            if (textSection && originalTextStyle) {
+              textSection.style.height = originalTextStyle.height
+              textSection.style.minHeight = originalTextStyle.minHeight
+              textSection.style.padding = originalTextStyle.padding
+              textSection.style.flexShrink = ''
+              textSection.style.boxSizing = ''
+              
+              const logo = textSection.querySelector('img') as HTMLElement
+              const userNameText = textSection.querySelector('.user-name') as HTMLElement
+              
+              const logoContainer = textSection.querySelector('.mb-2') as HTMLElement
+              if (logoContainer) {
+                logoContainer.style.marginBottom = ''
+              }
+              
+              if (logo) {
+                logo.style.height = ''
+              }
+              if (userNameText) {
+                userNameText.style.fontSize = ''
+              }
+            }
+            
+            setIsDownloading(false)
+            return
+          }
+        }
+      }
+      
       await new Promise(resolve => setTimeout(resolve, 2000))
       
-      let dataUrl: string
-      
-      dataUrl = await toPng(cardRef.current, {
+      const dataUrl = await toPng(cardRef.current, {
         quality: 1.0,
         pixelRatio: 2,
         width: sizeConfig.width,
@@ -393,41 +507,19 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
                 className={`card-image ${
                   isProcessing ? 'image-opacity-processing' : 'image-opacity-full'
                 }`}
-                crossOrigin="anonymous"
                 loading="eager"
                 onLoad={() => {
                   if (imageRef.current && 
                       imageRef.current.complete && 
                       imageRef.current.naturalWidth > 0 && 
                       imageRef.current.naturalHeight > 0) {
-                    setIsImageReady(true)
-                    
-                    let attempts = 0
-                    const maxAttempts = 50
-                    const checkInterval = setInterval(() => {
-                      attempts++
-                      const img = imageRef.current
-                      if (img) {
-                        const isComplete = img.complete && img.naturalWidth > 0 && img.naturalHeight > 0
-                        const hasOffsetSize = img.offsetWidth > 0 && img.offsetHeight > 0
-                        const rect = img.getBoundingClientRect()
-                        const hasBoundingRect = rect.width > 0 && rect.height > 0
-                        const computedStyle = window.getComputedStyle(img)
-                        const isVisible = computedStyle.display !== 'none' && 
-                                         computedStyle.visibility !== 'hidden' && 
-                                         computedStyle.opacity !== '0'
-                        
-                        if ((isComplete && hasOffsetSize && hasBoundingRect && isVisible) || attempts >= maxAttempts) {
-                          clearInterval(checkInterval)
-                          setTimeout(() => setIsImageFullyRendered(true), 1000)
-                        }
-                      }
-                    }, 100)
+                    setTimeout(() => {
+                      setIsImageReady(true)
+                    }, 3000)
                   }
                 }}
                 onError={() => {
                   setIsImageReady(true)
-                  setIsImageFullyRendered(true)
                 }}
               />
             </>
@@ -462,12 +554,12 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
         </div>
       </div>
 
-      {imageUrl && (!isImageReady || !isImageFullyRendered) && (
+      {imageUrl && !isImageReady && (
         <div className="image-loading-indicator">
           <div className="loading-spinner">
             <div className="spinner"></div>
             <p className="loading-text">
-              {!isImageReady ? 'Loading image...' : 'Preparing image for download...'}
+              Preparing image for download, please wait...
             </p>
           </div>
         </div>
@@ -475,7 +567,7 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
 
       <button
         onClick={() => handleDownload(cardSize)}
-        disabled={isProcessing || !imageUrl || isDownloading || !isImageReady || !isImageFullyRendered}
+        disabled={isProcessing || !imageUrl || isDownloading || !isImageReady}
         className="download-button"
       >
         {isDownloading ? (
