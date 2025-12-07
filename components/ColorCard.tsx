@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { toPng } from 'html-to-image'
+import { toPng, toCanvas } from 'html-to-image'
 
 type CardSize = 'normal' | 'instagram-post' | 'instagram-story'
 
@@ -168,34 +168,65 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
         })
       }
       
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      await new Promise(resolve => setTimeout(resolve, 2000))
       
-      if (cardImage && cardImage.src) {
-        cardImage.style.display = 'block'
-        cardImage.style.visibility = 'visible'
-        cardImage.style.opacity = '1'
-        const img = new Image()
-        img.crossOrigin = 'anonymous'
-        await new Promise<void>((resolve) => {
-          img.onload = () => {
-            cardImage.src = img.src
-            setTimeout(() => resolve(), 300)
+      let dataUrl: string
+      
+      if (cardImage && cardImage.src && cardImage.complete && cardImage.naturalWidth > 0) {
+        try {
+          const canvas = await toCanvas(cardRef.current, {
+            quality: 1.0,
+            pixelRatio: 2,
+            width: sizeConfig.width,
+            height: sizeConfig.height,
+            backgroundColor: '#FFFFFF',
+            cacheBust: true,
+            skipAutoScale: false,
+          })
+          
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            const imageHeight = Math.floor(sizeConfig.height * (2/3))
+            const imageWidth = sizeConfig.width
+            
+            const img = new Image()
+            img.crossOrigin = 'anonymous'
+            
+            await new Promise<void>((resolve) => {
+              img.onload = () => {
+                ctx.drawImage(img, 0, 0, imageWidth, imageHeight)
+                resolve()
+              }
+              img.onerror = () => resolve()
+              img.src = cardImage.src
+              setTimeout(() => resolve(), 3000)
+            })
           }
-          img.onerror = () => resolve()
-          img.src = cardImage.src
-          setTimeout(() => resolve(), 2000)
+          
+          dataUrl = canvas.toDataURL('image/png', 1.0)
+        } catch (error) {
+          console.error('Canvas export error, using PNG fallback:', error)
+          dataUrl = await toPng(cardRef.current, {
+            quality: 1.0,
+            pixelRatio: 2,
+            width: sizeConfig.width,
+            height: sizeConfig.height,
+            backgroundColor: '#FFFFFF',
+            cacheBust: true,
+            skipAutoScale: false,
+          })
+        }
+      } else {
+        dataUrl = await toPng(cardRef.current, {
+          quality: 1.0,
+          pixelRatio: 2,
+          width: sizeConfig.width,
+          height: sizeConfig.height,
+          backgroundColor: '#FFFFFF',
+          cacheBust: true,
+          skipAutoScale: false,
         })
       }
-      
-      const dataUrl = await toPng(cardRef.current, {
-        quality: 1.0,
-        pixelRatio: 2,
-        width: sizeConfig.width,
-        height: sizeConfig.height,
-        backgroundColor: '#FFFFFF',
-        cacheBust: true,
-        skipAutoScale: false,
-      })
 
       cardRef.current.style.width = originalCardStyle.width
       cardRef.current.style.height = originalCardStyle.height
