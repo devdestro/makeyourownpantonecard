@@ -514,6 +514,20 @@
   font-weight: 500;
 }
 
+.image-loading-indicator {
+  width: 100%;
+  max-width: 20rem;
+  margin: 0 auto;
+  padding: 1rem;
+  text-align: center;
+  background-color: rgb(243 244 246);
+  border-radius: 0.5rem;
+}
+
+.dark .image-loading-indicator {
+  background-color: #363636;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -756,4 +770,36 @@
 
 .dark .header-link::after {
   background-color: #363636;
+}
+
+.image-loading-indicator {
+  width: 100%;
+  max-width: 20rem;
+  margin: 0 auto 1rem;
+  padding: 1rem;
+  text-align: center;
+  background-color: rgb(243 244 246);
+  border-radius: 0.5rem;
+}
+
+.dark .image-loading-indicator {
+  background-color: #363636;
+}
+
+.image-loading-indicator .loading-text {
+  color: rgb(107 114 128);
+}
+
+.dark .image-loading-indicator .loading-text {
+  color: rgb(156 163 175);
+}
+
+.image-loading-indicator .spinner {
+  border-top-color: rgb(107 114 128);
+  border-bottom-color: rgb(107 114 128);
+}
+
+.dark .image-loading-indicator .spinner {
+  border-top-color: rgb(156 163 175);
+  border-bottom-color: rgb(156 163 175);
 }

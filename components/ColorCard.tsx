@@ -1,7 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { toPng, toCanvas } from 'html-to-image'
+import { useRef, useState, useEffect } from 'react'
+import { toPng } from 'html-to-image'
 
 type CardSize = 'normal' | 'instagram-post' | 'instagram-story'
 
@@ -23,6 +23,53 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
   const cardRef = useRef<HTMLDivElement>(null)
   const [cardSize, setCardSize] = useState<CardSize>('normal')
   const [isDownloading, setIsDownloading] = useState(false)
+  const [isImageReady, setIsImageReady] = useState(false)
+  const [isImageFullyRendered, setIsImageFullyRendered] = useState(false)
+  const imageRef = useRef<HTMLImageElement>(null)
+
+  useEffect(() => {
+    if (imageUrl) {
+      setIsImageReady(false)
+      setIsImageFullyRendered(false)
+      
+      const checkImageRendered = () => {
+        if (imageRef.current) {
+          const img = imageRef.current
+          const isComplete = img.complete && img.naturalWidth > 0 && img.naturalHeight > 0
+          const hasOffsetSize = img.offsetWidth > 0 && img.offsetHeight > 0
+          const rect = img.getBoundingClientRect()
+          const hasBoundingRect = rect.width > 0 && rect.height > 0
+          const computedStyle = window.getComputedStyle(img)
+          const isVisible = computedStyle.display !== 'none' && 
+                           computedStyle.visibility !== 'hidden' && 
+                           computedStyle.opacity !== '0'
+          
+          return isComplete && hasOffsetSize && hasBoundingRect && isVisible
+        }
+        return false
+      }
+      
+      if (imageRef.current) {
+        const img = imageRef.current
+        if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+          setIsImageReady(true)
+          
+          let attempts = 0
+          const maxAttempts = 50
+          const checkInterval = setInterval(() => {
+            attempts++
+            if (checkImageRendered() || attempts >= maxAttempts) {
+              clearInterval(checkInterval)
+              setTimeout(() => setIsImageFullyRendered(true), 1000)
+            }
+          }, 100)
+        }
+      }
+    } else {
+      setIsImageReady(false)
+      setIsImageFullyRendered(false)
+    }
+  }, [imageUrl])
 
   const handleDownload = async (size: CardSize = cardSize) => {
     if (!cardRef.current || isDownloading) return
@@ -127,106 +174,116 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
       
       const cardImage = cardRef.current.querySelector('.card-image') as HTMLImageElement
       if (cardImage && cardImage.src) {
-        await new Promise<void>((resolve) => {
-          if (cardImage.complete && cardImage.naturalWidth > 0 && cardImage.naturalHeight > 0) {
-            setTimeout(() => resolve(), 500)
-            return
-          }
-          
-          let resolved = false
-          const onLoad = () => {
-            if (resolved) return
-            resolved = true
-            cardImage.removeEventListener('load', onLoad)
-            cardImage.removeEventListener('error', onError)
-            setTimeout(() => resolve(), 500)
-          }
-          const onError = () => {
-            if (resolved) return
-            resolved = true
-            cardImage.removeEventListener('load', onLoad)
-            cardImage.removeEventListener('error', onError)
-            resolve()
-          }
-          
-          cardImage.addEventListener('load', onLoad, { once: true })
-          cardImage.addEventListener('error', onError, { once: true })
-          
-          setTimeout(() => {
-            if (resolved) return
-            resolved = true
-            cardImage.removeEventListener('load', onLoad)
-            cardImage.removeEventListener('error', onError)
-            resolve()
-          }, 10000)
-          
-          if (!cardImage.complete) {
-            const originalSrc = cardImage.src
-            cardImage.src = ''
-            cardImage.src = originalSrc
-          }
-        })
+        cardImage.style.display = 'block'
+        cardImage.style.visibility = 'visible'
+        cardImage.style.opacity = '1'
+        cardImage.style.width = '100%'
+        cardImage.style.height = '100%'
+        cardImage.style.objectFit = 'cover'
+        
+        const ensureImageFullyRendered = async (): Promise<void> => {
+          return new Promise((resolve) => {
+            const checkFullyRendered = () => {
+              const isComplete = cardImage.complete
+              const hasNaturalSize = cardImage.naturalWidth > 0 && cardImage.naturalHeight > 0
+              const hasOffsetSize = cardImage.offsetWidth > 0 && cardImage.offsetHeight > 0
+              const rect = cardImage.getBoundingClientRect()
+              const hasBoundingRect = rect.width > 0 && rect.height > 0
+              const computedStyle = window.getComputedStyle(cardImage)
+              const isVisible = computedStyle.display !== 'none' && 
+                               computedStyle.visibility !== 'hidden' && 
+                               computedStyle.opacity !== '0'
+              
+              return isComplete && hasNaturalSize && hasOffsetSize && hasBoundingRect && isVisible
+            }
+            
+            const waitForRender = () => {
+              let attempts = 0
+              const maxAttempts = 50
+              
+              const checkInterval = setInterval(() => {
+                attempts++
+                if (checkFullyRendered() || attempts >= maxAttempts) {
+                  clearInterval(checkInterval)
+                  setTimeout(() => resolve(), 1000)
+                }
+              }, 100)
+            }
+            
+            if (checkFullyRendered()) {
+              setTimeout(() => resolve(), 2000)
+              return
+            }
+            
+            let resolved = false
+            const cleanup = () => {
+              cardImage.removeEventListener('load', onLoad)
+              cardImage.removeEventListener('error', onError)
+            }
+            
+            const onLoad = () => {
+              if (resolved) return
+              setTimeout(() => {
+                if (checkFullyRendered()) {
+                  resolved = true
+                  cleanup()
+                  waitForRender()
+                } else {
+                  waitForRender()
+                }
+              }, 500)
+            }
+            
+            const onError = () => {
+              if (resolved) return
+              resolved = true
+              cleanup()
+              resolve()
+            }
+            
+            cardImage.addEventListener('load', onLoad)
+            cardImage.addEventListener('error', onError)
+            
+            setTimeout(() => {
+              if (resolved) return
+              resolved = true
+              cleanup()
+              waitForRender()
+            }, 15000)
+            
+            if (!cardImage.complete) {
+              const originalSrc = cardImage.src
+              const timestamp = new Date().getTime()
+              const separator = originalSrc.includes('?') ? '&' : '?'
+              cardImage.src = `${originalSrc}${separator}_t=${timestamp}`
+            } else {
+              waitForRender()
+            }
+          })
+        }
+        
+        await ensureImageFullyRendered()
+        
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        if (imageSection) {
+          imageSection.style.overflow = 'hidden'
+        }
       }
       
       await new Promise(resolve => setTimeout(resolve, 2000))
       
       let dataUrl: string
       
-      if (cardImage && cardImage.src && cardImage.complete && cardImage.naturalWidth > 0) {
-        try {
-          const canvas = await toCanvas(cardRef.current, {
-            quality: 1.0,
-            pixelRatio: 2,
-            width: sizeConfig.width,
-            height: sizeConfig.height,
-            backgroundColor: '#FFFFFF',
-            cacheBust: true,
-            skipAutoScale: false,
-          })
-          
-          const ctx = canvas.getContext('2d')
-          if (ctx) {
-            const imageHeight = Math.floor(sizeConfig.height * (2/3))
-            const imageWidth = sizeConfig.width
-            
-            const img = new Image()
-            img.crossOrigin = 'anonymous'
-            
-            await new Promise<void>((resolve) => {
-              img.onload = () => {
-                ctx.drawImage(img, 0, 0, imageWidth, imageHeight)
-                resolve()
-              }
-              img.onerror = () => resolve()
-              img.src = cardImage.src
-              setTimeout(() => resolve(), 3000)
-            })
-          }
-          
-          dataUrl = canvas.toDataURL('image/png', 1.0)
-        } catch (error) {
-          console.error('Canvas export error, using PNG fallback:', error)
-          dataUrl = await toPng(cardRef.current, {
-            quality: 1.0,
-            pixelRatio: 2,
-            width: sizeConfig.width,
-            height: sizeConfig.height,
-            backgroundColor: '#FFFFFF',
-            cacheBust: true,
-            skipAutoScale: false,
-          })
-        }
-      } else {
-        dataUrl = await toPng(cardRef.current, {
-          quality: 1.0,
-          pixelRatio: 2,
-          width: sizeConfig.width,
-          height: sizeConfig.height,
-          backgroundColor: '#FFFFFF',
-          cacheBust: true,
-          skipAutoScale: false,
-        })
-      }
+      dataUrl = await toPng(cardRef.current, {
+        quality: 1.0,
+        pixelRatio: 2,
+        width: sizeConfig.width,
+        height: sizeConfig.height,
+        backgroundColor: '#FFFFFF',
+        cacheBust: true,
+        skipAutoScale: false,
+      })
 
       cardRef.current.style.width = originalCardStyle.width
       cardRef.current.style.height = originalCardStyle.height
@@ -330,6 +387,7 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
                 </div>
               )}
               <img
+                ref={imageRef}
                 src={imageUrl}
                 alt="Pantone card image"
                 className={`card-image ${
@@ -337,6 +395,40 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
                 }`}
                 crossOrigin="anonymous"
                 loading="eager"
+                onLoad={() => {
+                  if (imageRef.current && 
+                      imageRef.current.complete && 
+                      imageRef.current.naturalWidth > 0 && 
+                      imageRef.current.naturalHeight > 0) {
+                    setIsImageReady(true)
+                    
+                    let attempts = 0
+                    const maxAttempts = 50
+                    const checkInterval = setInterval(() => {
+                      attempts++
+                      const img = imageRef.current
+                      if (img) {
+                        const isComplete = img.complete && img.naturalWidth > 0 && img.naturalHeight > 0
+                        const hasOffsetSize = img.offsetWidth > 0 && img.offsetHeight > 0
+                        const rect = img.getBoundingClientRect()
+                        const hasBoundingRect = rect.width > 0 && rect.height > 0
+                        const computedStyle = window.getComputedStyle(img)
+                        const isVisible = computedStyle.display !== 'none' && 
+                                         computedStyle.visibility !== 'hidden' && 
+                                         computedStyle.opacity !== '0'
+                        
+                        if ((isComplete && hasOffsetSize && hasBoundingRect && isVisible) || attempts >= maxAttempts) {
+                          clearInterval(checkInterval)
+                          setTimeout(() => setIsImageFullyRendered(true), 1000)
+                        }
+                      }
+                    }, 100)
+                  }
+                }}
+                onError={() => {
+                  setIsImageReady(true)
+                  setIsImageFullyRendered(true)
+                }}
               />
             </>
           ) : (
@@ -370,9 +462,20 @@ export default function ColorCard({ color, userName, imageUrl, isProcessing, onD
         </div>
       </div>
 
+      {imageUrl && (!isImageReady || !isImageFullyRendered) && (
+        <div className="image-loading-indicator">
+          <div className="loading-spinner">
+            <div className="spinner"></div>
+            <p className="loading-text">
+              {!isImageReady ? 'Loading image...' : 'Preparing image for download...'}
+            </p>
+          </div>
+        </div>
+      )}
+
       <button
         onClick={() => handleDownload(cardSize)}
-        disabled={isProcessing || !imageUrl || isDownloading}
+        disabled={isProcessing || !imageUrl || isDownloading || !isImageReady || !isImageFullyRendered}
         className="download-button"
       >
         {isDownloading ? (
